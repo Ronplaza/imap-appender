@@ -1,26 +1,31 @@
-// server.js
+// server.js (simpel en robuust)
 import express from "express";
 import bodyParser from "body-parser";
 import Imap from "imap";
-import { simpleParser } from "mailparser";
 
 const app = express();
 app.use(bodyParser.json());
 
+// Healthcheck (Render kan hiermee zien dat je service draait)
+app.get("/", (_req, res) => res.send("IMAP Appender OK"));
+
 app.post("/append-draft", async (req, res) => {
   const { imapUser, imapPassword, imapHost, imapPort, mime, mailbox } = req.body;
+  if (!imapUser || !imapPassword || !imapHost || !imapPort || !mime) {
+    return res.status(400).send({ error: "Missing required fields" });
+  }
 
   const imap = new Imap({
     user: imapUser,
     password: imapPassword,
     host: imapHost,
-    port: imapPort,
+    port: Number(imapPort),
     tls: true,
   });
 
-  // Kandidatenlijst: eerst de meegegeven mailbox, daarna veelvoorkomende varianten
+  // Kandidaten: meegegeven mailbox + veelvoorkomende varianten
   const candidates = [
-    mailbox,                 // bv. "Concepten" als jij die meestuurt
+    mailbox,                 // bijv. "Concepten" als je die meestuurt
     "INBOX/Concepten",
     "INBOX.Concepten",
     "Concepten",
@@ -34,9 +39,10 @@ app.post("/append-draft", async (req, res) => {
       return res.status(500).send({ error: "No suitable mailbox found" });
     }
     const box = candidates[idx];
+
     imap.append(mime, { mailbox: box, flags: ["\\Draft"] }, (err) => {
       if (err) {
-        // Probeer de volgende variant
+        // probeer volgende kandidaat
         return tryAppend(idx + 1);
       }
       res.send({ success: true, mailboxUsed: box });
@@ -54,6 +60,7 @@ app.post("/append-draft", async (req, res) => {
 
   imap.connect();
 });
-});
 
-app.listen(3000, () => console.log("IMAP appender running on port 3000"));
+// BELANGRIJK: Render verwacht dat je luistert op process.env.PORT
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("IMAP appender running on port " + PORT));
