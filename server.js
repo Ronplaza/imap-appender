@@ -8,7 +8,7 @@ const app = express();
 app.use(bodyParser.json());
 
 app.post("/append-draft", async (req, res) => {
-  const { imapUser, imapPassword, imapHost, imapPort, mime } = req.body;
+  const { imapUser, imapPassword, imapHost, imapPort, mime, mailbox } = req.body;
 
   const imap = new Imap({
     user: imapUser,
@@ -18,15 +18,34 @@ app.post("/append-draft", async (req, res) => {
     tls: true,
   });
 
-  imap.once("ready", () => {
-    imap.append(mime, { mailbox: "Drafts", flags: ["\\Draft"] }, (err) => {
+  // Kandidatenlijst: eerst de meegegeven mailbox, daarna veelvoorkomende varianten
+  const candidates = [
+    mailbox,                 // bv. "Concepten" als jij die meestuurt
+    "INBOX/Concepten",
+    "INBOX.Concepten",
+    "Concepten",
+    "INBOX/Drafts",
+    "INBOX.Drafts",
+    "Drafts",
+  ].filter(Boolean);
+
+  function tryAppend(idx) {
+    if (idx >= candidates.length) {
+      return res.status(500).send({ error: "No suitable mailbox found" });
+    }
+    const box = candidates[idx];
+    imap.append(mime, { mailbox: box, flags: ["\\Draft"] }, (err) => {
       if (err) {
-        res.status(500).send({ error: err.message });
-      } else {
-        res.send({ success: true });
+        // Probeer de volgende variant
+        return tryAppend(idx + 1);
       }
+      res.send({ success: true, mailboxUsed: box });
       imap.end();
     });
+  }
+
+  imap.once("ready", () => {
+    tryAppend(0);
   });
 
   imap.once("error", (err) => {
@@ -34,6 +53,7 @@ app.post("/append-draft", async (req, res) => {
   });
 
   imap.connect();
+});
 });
 
 app.listen(3000, () => console.log("IMAP appender running on port 3000"));
